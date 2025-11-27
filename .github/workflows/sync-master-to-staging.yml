@@ -37,6 +37,18 @@ jobs:
         run: |
           git fetch origin staging:staging
 
+      - name: Ensure auto-sync label exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Check if label exists, create if not
+          if ! gh label list --json name --jq '.[].name' | grep -q "^auto-sync$"; then
+            echo "Creating 'auto-sync' label..."
+            gh label create "auto-sync" --color "0E8A16" --description "Automated sync PR"
+          else
+            echo "Label 'auto-sync' already exists"
+          fi
+
       - name: Create or update PR from master → staging
         env:
           GH_TOKEN: ${{ github.token }}
