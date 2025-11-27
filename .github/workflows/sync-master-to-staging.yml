@@ -9,6 +9,11 @@ on:
     branches:
       - master
 
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
 jobs:
   sync-staging:
     # Run only when:
@@ -37,46 +42,35 @@ jobs:
         run: |
           git fetch origin staging:staging
 
-      - name: Ensure auto-sync label exists
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          # Check if label exists, create if not
-          if ! gh label list --json name --jq '.[].name' | grep -q "^auto-sync$"; then
-            echo "Creating 'auto-sync' label..."
-            gh label create "auto-sync" --color "0E8A16" --description "Automated sync PR"
-          else
-            echo "Label 'auto-sync' already exists"
-          fi
-
       - name: Create or update PR from master → staging
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # Check if a PR from master to staging already exists
-          existing_pr=$(gh pr list --base staging --head master --state open --json number --jq '.[0].number')
-
-          if [ -n "$existing_pr" ]; then
-            echo "Found existing PR #$existing_pr, updating it..."
-            # Update PR description to show it was updated
-            gh pr edit "$existing_pr" --body "Automated pull request to sync **master → staging**.
+          # Try to create PR, if it already exists it will just show the existing one
+          set +e
+          pr_url=$(gh pr create \
+            --base staging \
+            --head master \
+            --title "Sync master → staging" \
+            --body "Automated pull request to sync **master → staging**.
 
           This PR was created by GitHub Actions after changes were merged into master.
 
-          **Last updated:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
-            echo "PR #$existing_pr has been updated"
+          **Last updated:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" 2>&1)
+
+          exit_code=$?
+
+          if [ $exit_code -eq 0 ]; then
+            echo "PR created successfully: $pr_url"
           else
-            echo "No existing PR found, creating a new one..."
-            # Create new PR
-            gh pr create \
-              --base staging \
-              --head master \
-              --title "Sync master → staging" \
-              --body "Automated pull request to sync **master → staging**.
-
-          This PR was created by GitHub Actions after changes were merged into master.
-
-          **Created:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" \
-              --label "auto-sync"
-            echo "New PR has been created"
+            # Check if error is because PR already exists
+            if echo "$pr_url" | grep -q "already exists"; then
+              echo "PR already exists. It will be automatically updated when you push to master."
+              # Get the existing PR URL
+              existing_pr=$(gh pr list --base staging --head master --state open --json url --jq '.[0].url')
+              echo "Existing PR: $existing_pr"
+            else
+              echo "Error creating PR: $pr_url"
+              exit 1
+            fi
           fi
